@@ -11,6 +11,7 @@ const rli = readline.createInterface({
 
 const prompt = (question) => {return new Promise((res, rej) => {rli.question(question, res)})}
 const request = (con, commands) => {return new Promise((res, rej) => {
+    con.drain()
     con.write(commands)
     
     startOff = (commands.match(/\r\n/g) || []).length
@@ -70,13 +71,14 @@ const terminal = (con) => {
         console.log(data)
     })
 
+    con.write("\x03print('mpySync has successfully integrated with MicroPython.')\r\n\r\n")
 
     var files = JSON.parse((await request(con, "import os\r\nos.listdir()\r\n")).replace(/'/g, '"'))
 
     for (var i = 0; i < files.length; i++) {
         console.log(files[i])
         var fileContent = await request(con, "f = open('" + files[i] + "', 'r')\r\nf.read()\r\n")
-        fileContent = JSON.parse('"' + fileContent.substring(1, fileContent.length - 3) + '"')
+        fileContent = JSON.parse('"' + fileContent.substring(1, fileContent.length - 3).replace(/"/g, "\\\"") + '"')
 
         fs.writeFileSync(path.join(process.cwd(), syncFolder, files[i]), fileContent)
     }
