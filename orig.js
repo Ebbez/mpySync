@@ -51,7 +51,7 @@ const execTerminalCommand = (comm, con) => {
 
 const terminal = (con) => {
     setTimeout(() => {
-        rli.question(">>> ", (response) => {
+        rli.question("mpySync> ", (response) => {
             execTerminalCommand(response, con)
         })
     }, 1000)
