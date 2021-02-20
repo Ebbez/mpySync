@@ -43,17 +43,24 @@ const request = (con, commands) => {return new Promise((res, rej) => {
     con.on('data', specificListener)
 })}
 
+var remote, remoteTO = ["", ""]
+
 const execTerminalCommand = (comm, con) => {
     con.write(comm + "\r\n")
-    terminal(con)
+    [remote, remoteTO] = terminal(con)
 }
 
 const terminal = (con) => {
-    setTimeout(() => {
-        rli.question("mpySync> ", (response) => {
+    const ac = new AbortController()
+    const signal = ac.signal
+
+    var to = setTimeout(() => {
+        rli.question("mpySync> ", {signal}, (response) => {
             execTerminalCommand(response, con)
         })
-    }, 1000)
+    }, 200) 
+
+    return [ac, to]
 }
 
 (async () => {
@@ -61,16 +68,27 @@ const terminal = (con) => {
     var tbaudRate = parseInt(await prompt("Baud rate [115200]: ")) || 115200
     var syncFolder = await prompt("Sync folder [./ESP32-sync]: ") || "./ESP32-sync"
 
-    const con = new serialport(port, {baudRate: tbaudRate})
+    const con = new serialport(port, {baudRate: tbaudRate}, (err) => {
+        if (err) throw err;
+        else [remote, remoteTO] = terminal(con)
+    })
 
     // Just loggin
     con.pipe(readlineparser)
     readlineparser.on('data', (data) => {
         if (data.startsWith(">>>")) return
+        remote.abort()
+        clearTimeout(remoteTO)
         console.log(data)
+        var newRemote = terminal(con)
+        remote = newRemote[0]
+        remoteTO = newRemote[1]
     })
 
-    await request(con, "\x03print('mpySync has successfully integrated with MicroPython.')\r\n\r\n")
+    await request(con, "\x03")
+    await request(con, "\x03")
+    await request(con, "\x03")
+    await request(con, "print('mpySync has successfully hooked with MicroPython.')\r\n")
 
     var files = JSON.parse((await request(con, "import os\r\nos.listdir()\r\n")).replace(/'/g, '"'))
 
@@ -82,23 +100,23 @@ const terminal = (con) => {
         fs.writeFileSync(path.join(process.cwd(), syncFolder, files[i]), fileContent)
     }
 
+    var writing = false
     fs.watch(path.join(process.cwd(), syncFolder), (ev, filename) => {
-        console.log("---------------------mpySync---------------------")
-        console.log("Detected a change of " + path.join(process.cwd(), syncFolder, filename))
-        console.log("Writing new version...")
-        if (fs.existsSync(path.join(process.cwd(), syncFolder, filename))) {
-            newVersion = fs.readFileSync(path.join(process.cwd(), syncFolder, filename))
-            con.write("f = open('" + filename + "', 'w')\r\nf.write('" + newVersion.toString().replace(/'/g, "\\'").replace(/\r\n/g, "\\r\\n") + "')\r\nf.close()\r\n")
-        } else {
-            con.write("import os\r\nos.remove('" + filename + "')\r\n")
+        if (!writing) {
+            writing = true
+            if (fs.existsSync(path.join(process.cwd(), syncFolder, filename))) {
+                newVersion = fs.readFileSync(path.join(process.cwd(), syncFolder, filename))
+                con.write("f = open('" + filename + "', 'w')\r\nf.write('" + newVersion.toString().replace(/'/g, "\\'").replace(/\r\n/g, "\\r\\n") + "')\r\nf.close()\r\n")
+            } else {
+                con.write("import os\r\nos.remove('" + filename + "')\r\n")
+            }
+
+            con.drain((err) => {
+                if (err) throw err;
+                writing = false
+            })
         }
-        console.log("\r\nSoft resetting the micropython board")
-        con.write("import sys\r\nsys.exit()\r\n")
-        con.drain((err) => {
-            if (err) throw err;
-        })
     })
-    terminal(con)
 
 })().catch(err => {
     console.log(err)
