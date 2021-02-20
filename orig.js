@@ -86,8 +86,12 @@ const terminal = (con) => {
         console.log("---------------------mpySync---------------------")
         console.log("Detected a change of " + path.join(process.cwd(), syncFolder, filename))
         console.log("Writing new version...")
-        newVersion = fs.readFileSync(path.join(process.cwd(), syncFolder, filename))
-        con.write("f = open('" + filename + "', 'w')\r\nf.write('" + newVersion.toString().replace(/'/g, "\\'").replace(/\r\n/g, "\\r\\n") + "')\r\nf.close()\r\n")
+        if (fs.existsSync(path.join(process.cwd(), syncFolder, filename))) {
+            newVersion = fs.readFileSync(path.join(process.cwd(), syncFolder, filename))
+            con.write("f = open('" + filename + "', 'w')\r\nf.write('" + newVersion.toString().replace(/'/g, "\\'").replace(/\r\n/g, "\\r\\n") + "')\r\nf.close()\r\n")
+        } else {
+            con.write("import os\r\nos.remove('" + filename + "')\r\n")
+        }
         console.log("\r\nSoft resetting the micropython board")
         con.write("import sys\r\nsys.exit()\r\n")
         con.drain((err) => {
